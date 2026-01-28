@@ -1,0 +1,37 @@
+Package: MetaTrajectory
+Type: Package
+Title: Optimal Transport-Based Metabolic Trajectory Analysis for Single-Cell Data
+Version: 1.0.0
+Authors@R: 
+    person("MetaTrajectory", "Team",
+           email = "metatrajectory@example.com",
+           role = c("aut", "cre"))
+Description: 
+    A mathematically rigorous framework for analyzing metabolic state transitions
+    in single-cell RNA-seq data using optimal transport theory. The package
+    provides network-constrained metabolic state space construction, optimal
+    transport-based trajectory inference, fate probability estimation, and
+    driver gene identification. Designed to integrate with Seurat workflows.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Depends: R (>= 4.1.0)
+Imports:
+    stats,
+    Matrix,
+    igraph,
+    transport,
+    Seurat,
+    ggplot2,
+    dplyr,
+    tidyr,
+    tibble,
+    scales,
+    RColorBrewer,
+    cowplot
+Suggests:
+    testthat (>= 3.0.0),
+    knitr,
+    rmarkdown
+RoxygenNote: 7.3.0
+VignetteBuilder: knitr

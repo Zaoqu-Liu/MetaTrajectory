@@ -1,0 +1,330 @@
+---
+title: "MetaTrajectory R Tutorial"
+author: "MetaTrajectory Team"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Overview
+
+MetaTrajectory is a mathematically rigorous framework for analyzing metabolic 
+state transitions in single-cell RNA-seq data using **optimal transport theory**.
+
+## Key advantages over pseudo-time methods:
+
+1. **No assumption of continuous trajectories**
+2. **Probabilistic interpretation** of fate transitions
+3. **Handles branching naturally**
+4. **Wasserstein distance** as a meaningful metric
+
+## Scientific positioning (honest and rigorous)
+
+We don't say: "We invented Metabolic Velocity"
+
+We say: "We provide an optimal transport-based framework for analyzing metabolic state transitions"
+
+# Setup
+
+```{r load_packages}
+# Source MetaTrajectory functions
+source("../R/R/knowledge_base.R")
+source("../R/R/state_space.R")
+source("../R/R/optimal_transport.R")
+source("../R/R/drivers.R")
+source("../R/R/plotting.R")
+
+# Load required packages
+library(ggplot2)
+library(dplyr)
+```
+
+# Step 1: Build Metabolic Knowledge Base
+
+The knowledge base contains:
+
+- Curated metabolic pathway gene sets (from KEGG)
+- Rate-limiting enzyme definitions
+- Metabolic network structure
+- Metabolic axis definitions
+
+```{r build_kb}
+# Build metabolic knowledge base
+kb <- build_metabolic_graph()
+
+# Examine contents
+cat("Number of pathways:", length(kb$pathways), "\n")
+cat("Pathways:", paste(names(kb$pathways), collapse = ", "), "\n\n")
+
+cat("Number of rate-limiting enzymes:", length(kb$rate_limiting), "\n")
+cat("Examples:", paste(kb$rate_limiting[1:10], collapse = ", "), "\n\n")
+
+cat("Metabolic axes:", paste(names(kb$metabolic_axes), collapse = ", "), "\n")
+```
+
+# Step 2: Create Synthetic Data
+
+For this tutorial, we create synthetic data with clear metabolic structure.
+
+```{r create_data}
+set.seed(42)
+n_cells <- 300
+
+# Get metabolic genes
+metabolic_genes <- get_all_metabolic_genes(kb)[1:80]
+n_genes <- length(metabolic_genes)
+
+# Create base expression matrix (genes x cells)
+expr <- matrix(
+  runif(n_genes * n_cells) * 5,
+  nrow = n_genes,
+  ncol = n_cells
+)
+rownames(expr) <- metabolic_genes
+colnames(expr) <- paste0("Cell_", 1:n_cells)
+
+# Create three metabolic states
+# State 1: High glycolysis (cells 1-100)
+glycolysis_idx <- which(metabolic_genes %in% kb$pathways$Glycolysis)
+expr[glycolysis_idx, 1:100] <- expr[glycolysis_idx, 1:100] * 3
+
+# State 2: High OXPHOS (cells 101-200)
+oxphos_idx <- which(metabolic_genes %in% kb$pathways$OXPHOS)
+expr[oxphos_idx, 101:200] <- expr[oxphos_idx, 101:200] * 3
+
+# State 3: High TCA (cells 201-300)
+tca_idx <- which(metabolic_genes %in% kb$pathways$TCA_Cycle)
+expr[tca_idx, 201:300] <- expr[tca_idx, 201:300] * 3
+
+# Create group labels
+groups <- c(rep("Glycolytic", 100), rep("Oxidative", 100), rep("TCA_high", 100))
+
+cat("Expression matrix:", nrow(expr), "genes x", ncol(expr), "cells\n")
+cat("Groups:", table(groups), "\n")
+```
+
+# Step 3: Compute Pathway Scores
+
+Calculate pathway-level metabolic activity scores for each cell.
+
+```{r pathway_scores}
+# Compute pathway scores
+pathway_scores <- compute_pathway_scores(
+  expr, kb,
+  method = "mean",
+  min_genes = 3,
+  scale = TRUE
+)
+
+cat("Pathway scores shape:", nrow(pathway_scores), "x", ncol(pathway_scores), "\n")
+cat("Pathways scored:", colnames(pathway_scores), "\n")
+
+# Show first few cells
+head(pathway_scores)
+```
+
+# Step 4: Build Metabolic State Space
+
+Construct complete metabolic state space including PCA embedding.
+
+```{r state_space}
+# Build state space
+mss <- metabolic_state_space(expr, kb, n_pcs = 10)
+
+cat("State space components:\n")
+cat("  - Pathway scores:", dim(mss$pathway_scores), "\n")
+cat("  - Embedding:", dim(mss$embedding), "\n")
+cat("  - PCA variance explained:", 
+    paste(round(mss$pca$sdev[1:5]^2 / sum(mss$pca$sdev^2) * 100, 1), "%", collapse = ", "), 
+    "\n")
+```
+
+# Step 5: Compute Transition Matrix
+
+Use kNN-based transition probabilities.
+
+```{r transition_matrix}
+# Compute transition matrix
+trans <- compute_transition_matrix(mss, k = 30)
+
+cat("Transition matrix:", dim(trans), "\n")
+cat("Row sum (should be ~1):", round(mean(rowSums(trans)), 3), "\n")
+```
+
+# Step 6: Identify Terminal States and Fate Probabilities
+
+```{r fate_probs}
+# Identify terminal states
+terminal_states <- identify_terminal_states(mss, n_states = 3)
+cat("Terminal states:", terminal_states, "\n\n")
+
+# Compute fate probabilities
+fate_probs <- compute_fate_probabilities(trans, terminal_states, n_iter = 50)
+
+cat("Fate probabilities shape:", dim(fate_probs), "\n")
+cat("\nFate probability summary:\n")
+summary(fate_probs)
+```
+
+# Step 7: Identify Bifurcation Cells
+
+Find cells at decision points (high fate entropy).
+
+```{r bifurcation}
+# Identify bifurcation cells
+bifurcation_cells <- identify_bifurcation(fate_probs, entropy_threshold = 0.7)
+
+cat("Bifurcation cells:", length(bifurcation_cells), "\n")
+if (length(bifurcation_cells) > 0) {
+  cat("Indices:", head(bifurcation_cells), "\n")
+}
+```
+
+# Step 8: Driver Gene Analysis
+
+Identify metabolic enzymes driving fate decisions.
+
+```{r drivers}
+# Compare Glycolytic vs Oxidative cells
+group1_cells <- colnames(expr)[1:100]
+group2_cells <- colnames(expr)[101:200]
+
+drivers <- find_driver_genes(
+  expr, group1_cells, group2_cells, kb,
+  test = "wilcox"
+)
+
+cat("Driver genes found:", nrow(drivers), "\n")
+cat("Significant (p<0.05):", sum(drivers$p_adjusted < 0.05, na.rm = TRUE), "\n\n")
+
+# Show top drivers
+cat("Top 10 driver genes:\n")
+head(drivers[, c("gene", "log2_fc", "p_adjusted", "is_rate_limiting", "pathways")], 10)
+```
+
+# Step 9: Pathway Enrichment
+
+Compute pathway enrichment for driver genes.
+
+```{r enrichment}
+# Pathway enrichment
+enrichment <- compute_pathway_enrichment(drivers, kb, pval_cutoff = 0.05)
+
+if (nrow(enrichment) > 0) {
+  cat("Enriched pathways:\n")
+  print(enrichment[, c("pathway", "n_drivers", "enrichment", "p_adjusted")])
+}
+```
+
+# Visualization
+
+## Pathway Score Distribution
+
+```{r plot_pathway_dist, fig.width=10, fig.height=6}
+# Convert to long format for plotting
+pathway_long <- as.data.frame(pathway_scores) %>%
+  mutate(cell = rownames(pathway_scores), group = groups) %>%
+  tidyr::pivot_longer(
+    cols = -c(cell, group),
+    names_to = "pathway",
+    values_to = "score"
+  )
+
+# Plot
+ggplot(pathway_long, aes(x = pathway, y = score, fill = group)) +
+  geom_boxplot(alpha = 0.7) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    title = "Pathway Scores by Metabolic State",
+    x = "Pathway",
+    y = "Score (Z-normalized)",
+    fill = "State"
+  ) +
+  scale_fill_manual(values = c("#E64B35", "#4DBBD5", "#00A087"))
+```
+
+## Driver Gene Bar Plot
+
+```{r plot_drivers, fig.width=8, fig.height=6}
+# Get top 15 drivers
+top_drivers <- head(drivers, 15)
+top_drivers$gene <- factor(top_drivers$gene, levels = rev(top_drivers$gene))
+top_drivers$direction <- ifelse(top_drivers$log2_fc > 0, "up", "down")
+
+ggplot(top_drivers, aes(x = log2_fc, y = gene, fill = direction)) +
+  geom_bar(stat = "identity", alpha = 0.8) +
+  geom_vline(xintercept = 0, color = "black", linewidth = 0.5) +
+  scale_fill_manual(
+    values = c("up" = "#E64B35", "down" = "#4DBBD5"),
+    name = "Direction"
+  ) +
+  theme_classic() +
+  labs(
+    title = "Top Metabolic Driver Genes",
+    subtitle = "Glycolytic vs Oxidative cells",
+    x = "Log2 Fold Change",
+    y = ""
+  )
+```
+
+## PCA Embedding
+
+```{r plot_pca, fig.width=8, fig.height=6}
+# Create PCA plot
+pca_df <- data.frame(
+  PC1 = mss$embedding[, 1],
+  PC2 = mss$embedding[, 2],
+  group = groups
+)
+
+ggplot(pca_df, aes(x = PC1, y = PC2, color = group)) +
+  geom_point(size = 2, alpha = 0.7) +
+  theme_classic() +
+  scale_color_manual(values = c("#E64B35", "#4DBBD5", "#00A087")) +
+  labs(
+    title = "Metabolic State Space (PCA)",
+    x = paste0("PC1 (", round(mss$pca$sdev[1]^2/sum(mss$pca$sdev^2)*100, 1), "%)"),
+    y = paste0("PC2 (", round(mss$pca$sdev[2]^2/sum(mss$pca$sdev^2)*100, 1), "%)"),
+    color = "State"
+  )
+```
+
+# Summary
+
+In this tutorial, we demonstrated:
+
+1. **Building the knowledge base** with metabolic pathways and network structure
+2. **Computing pathway scores** for each cell
+3. **Constructing metabolic state space** with PCA embedding
+4. **Optimal transport analysis** for transition probabilities
+5. **Fate probability estimation** based on terminal states
+6. **Driver gene identification** comparing metabolic states
+
+## Key differences from pseudo-time methods:
+
+| Feature | Pseudo-time | MetaTrajectory (OT) |
+|---------|-------------|---------------------|
+| Direction | Assumed | Not required |
+| Topology | Single path | Any |
+| Probabilities | No | Yes (fate probs) |
+| Distance metric | Graph | Wasserstein |
+| Mathematical foundation | Heuristic | Optimal transport |
+
+## Best practices:
+
+1. Use MetaTrajectory for **metabolic interpretation**, not as a replacement for RNA velocity
+2. Focus on **rate-limiting enzymes** as they control metabolic flux
+3. Validate computational findings with **biological knowledge**
+4. Use **Wasserstein distance** to quantify metabolic differences between conditions
+
+```{r session_info}
+sessionInfo()
+```
