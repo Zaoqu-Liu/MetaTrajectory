@@ -32,7 +32,7 @@ Citation:
     Wu Y, Gao Q, et al. Cancer Discovery, 2022.
 """
 
-__version__ = "2.0.0"
+__version__ = "1.0.0"
 __author__ = "MetaTrajectory Team"
 
 # Core classes

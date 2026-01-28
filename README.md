@@ -1,4 +1,4 @@
-# MetaTrajectory v2.0
+# MetaTrajectory
 
 **Optimal Transport-Based Metabolic Trajectory Analysis for Single-Cell Data**
 
@@ -7,7 +7,11 @@
 
 A mathematically rigorous framework for analyzing metabolic state transitions in single-cell RNA-seq data using optimal transport theory.
 
-## What's New in v2.0
+## Overview
+
+![MetaTrajectory Workflow](docs/workflow.png)
+
+## Key Features
 
 | Feature | Description |
 |---------|-------------|
@@ -19,7 +23,7 @@ A mathematically rigorous framework for analyzing metabolic state transitions in
 | **Validation** | Synthetic ground truth verification |
 | **77 KEGG Pathways** | Scientifically filtered pathway database |
 
-## Key Features
+## Why MetaTrajectory?
 
 1. **Mathematical Rigor**: Uses optimal transport instead of pseudo-dynamics - no circular reasoning
 2. **Network-Constrained**: Leverages KEGG metabolic network topology for biologically meaningful distances
@@ -67,7 +71,7 @@ mss.fit(adata)
 
 # Optimal transport trajectory inference
 mot = mt.MetabolicOT(mss)
-source_cells = adata.obs['timepoint'] == 'early'  # Define source/target
+source_cells = adata.obs['timepoint'] == 'early'
 target_cells = adata.obs['timepoint'] == 'late'
 mot.compute_cost_matrix(source_cells=source_cells, target_cells=target_cells)
 mot.compute_transport_plan()
@@ -77,10 +81,13 @@ mot.compute_transition_matrix(adata)
 terminal_states = mss.identify_terminal_states(n_clusters=3)
 mot.compute_fate_probabilities(terminal_states)
 
-# Identify driver genes
+# Identify driver genes with rigorous statistics
 drivers = mt.DriverAnalysis(mot, mss, kb)
 drivers.fit(adata)
 driver_genes = drivers.get_top_drivers(n_top=20)
+
+# Apply global FDR correction
+driver_genes = mt.global_fdr_correction(driver_genes)
 
 # Visualize
 mt.plot_metabolic_landscape(adata, mss)
@@ -100,30 +107,25 @@ seurat_obj <- readRDS("your_data.rds")
 # Build metabolic knowledge base (77 filtered KEGG pathways)
 kb <- build_metabolic_graph()
 
-# Compute pathway scores
-scores <- compute_pathway_scores(seurat_obj, kb, assay = "RNA", slot = "data")
+# Compute pathway scores with advanced methods
+scores <- compute_pathway_scores_advanced(seurat_obj, kb, method = "weighted")
 
 # Metabolic state space with PCA embedding
 mss <- metabolic_state_space(seurat_obj, kb, n_pcs = 20)
 
-# Define source and target cells
+# Optimal transport
 source_cells <- which(seurat_obj$timepoint == "early")
 target_cells <- which(seurat_obj$timepoint == "late")
+ot_result <- optimal_transport(mss$embedding[source_cells, ], mss$embedding[target_cells, ])
 
-# Optimal transport
-source_emb <- mss$embedding[source_cells, ]
-target_emb <- mss$embedding[target_cells, ]
-ot_result <- optimal_transport(source_emb, target_emb)
-
-# Transition matrix for all cells
+# Transition matrix and fate probabilities
 trans <- compute_transition_matrix(mss$embedding, k = 30)
-
-# Fate probabilities
 terminal_states <- identify_terminal_states(seurat_obj, scores, n_terminal = 3)
 fate_probs <- compute_fate_probabilities(trans, terminal_states)
 
-# Driver genes
+# Driver genes with rigorous statistics
 drivers <- find_driver_genes(seurat_obj, source_cells, target_cells, kb)
+drivers <- global_fdr_correction(drivers)
 
 # Visualize
 plot_metabolic_landscape(seurat_obj, mss)
